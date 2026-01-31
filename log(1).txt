@@ -1,0 +1,376 @@
+import numpy as np
+import scipy.optimize as optimize
+from scipy.special import gamma
+from scipy import stats
+# 数据集
+data1 = np.array([0.023, 0.032, 0.054, 0.069, 0.081, 0.094, 0.105, 0.127, 0.148,
+                 0.169, 0.188, 0.216, 0.255, 0.277, 0.311, 0.361, 0.376, 0.395,
+                 0.432, 0.463, 0.481, 0.519, 0.529, 0.567, 0.642, 0.674, 0.752,
+                 0.823, 0.887, 0.926])
+data2 = np.array([0.853, 0.759, 0.874, 0.800, 0.716, 0.557, 0.503, 0.399, 0.334,
+                  0.207, 0.118, 0.097, 0.078, 0.067, 0.056, 0.044, 0.036, 0.026,
+                  0.019, 0.014, 0.010, 0.118])
+miu1 = np.mean(data1)
+se1 = np.std(data1)
+miu2 = np.mean(data2)
+se2 = np.std(data2)
+
+
+def uexe_log_likelihood(params, data):
+    delta, lambd = params
+    # 检查参数范围
+    if delta <= 0 or lambd <= 0:
+        return np.inf  # 参数或数据越界时，返回正无穷作为惩罚
+    # 计算负对数似然值
+    log_pdf = (
+        2 * np.log(delta)
+        + np.log(1 - lambd * np.log(data))
+        - np.log(delta + lambd)
+        + (delta - 1) * np.log(data)
+    )
+    return -np.sum(log_pdf)
+
+
+def beta_log_likelihood(params, data):
+    a, b = params
+    if a <= 0 or b <= 0:
+        return np.inf
+    return -np.sum(stats.beta.logpdf(data, b, a))
+
+
+def kumaraswamy_log_likelihood(params, data):
+    a, b = params
+    if a <= 0 or b <= 0:
+        return np.inf
+    return -np.sum(np.log(b) + np.log(a) + (b - 1) * np.log(data) + (a - 1) * np.log(1 - data**b))
+
+
+def unit_gamma_log_likelihood(params, data):
+    a, b = params
+    if a <= 0 or b <= 0:
+        return np.inf
+    log_pdf = (
+        np.log(b)
+        + (b-1) * np.log(data)
+        + (a-1) * np.log((-b) * np.log(data))
+        - np.log(gamma(a))
+    )
+    return -np.sum(log_pdf)
+
+
+def power_topp_leone_log_likelihood(params, data):
+    a, b = params
+    if a <= 0 or b <= 0:
+        return np.inf
+    return -np.sum(np.log(2) + np.log(a) + np.log(b) + (a * b - 1) * np.log(data) + np.log(1 - data**a) + (b-1) * np.log(2 - data**a))
+
+
+def bounded_weighted_exponential_log_likelihood(params, data):
+    a, b = params
+    if a <= 0 or b <= 0:
+        return np.inf
+    return -np.sum(np.log(a+1) + np.log(b) - np.log(a) + (b-1) * np.log(data) + np.log(1 - data**(a*b)))
+
+
+def unit_burr_xii_log_likelihood(params, data):
+    a, b = params
+    if a <= 0 or b <= 0:
+        return np.inf
+    return -np.sum(np.log(a) + np.log(b) - (1+a) * np.log(1 + (-np.log(data))**b) - np.log(data) - (1-b) * np.log(-np.log(data)))
+
+
+def unit_birnbaum_saunders_log_likelihood(params, data):
+    a, b = params
+    if a <= 0 or b <= 0:
+        return np.inf
+    first = np.sqrt(-b/np.log(data)) + np.sqrt((-b/np.log(data))**3)
+    second1 = b/np.log(data)
+    second2 = np.log(data)/b
+    second = (second1 + second2 + 2)/(a**2)
+    second = second/2
+    third = 2 * a * b * data * np.sqrt(2*np.pi)
+    log_pdf = (
+            np.log(first)
+            + second
+            - np.log(third)
+    )
+    return -np.sum(log_pdf)
+
+
+def unit_inverse_gaussian_log_likelihood(params, data):
+    a, b = params
+    if a <= 0 or b <= 0:
+        return np.inf
+    second_1 = a * ((np.log(data) + b)**2)
+    second_2 = 2 * np.log(data) * (b**2)
+    second = second_1 / second_2
+    c = (np.log(data))**2
+    log_pdf = (
+            np.log(a)
+            + second
+            - 0.5 * np.log(2 * np.pi)
+            - np.log(data)
+            - np.log(c)
+            - 0.5 * np.log(-a/np.log(data))
+    )
+    return -np.sum(log_pdf)
+
+
+def unit_mirra_log_likelihood(params, data):
+    a, b = params
+    if a <= 0 or b <= 0:
+        return np.inf
+    log_pdf = (
+            3 * np.log(b)
+            + np.log(a + (a+2) * (data**2) - 2 * a * data)
+            + b
+            - b/data
+            - np.log(2 * (data**4))
+            - np.log(a + (b**2))
+    )
+    return -np.sum(log_pdf)
+
+
+# 最大似然估计函数
+def mle_estimation(log_likelihood_func, initial_guess, data):
+    result = optimize.minimize(log_likelihood_func, initial_guess, args=(data,), method='L-BFGS-B',
+                                bounds=[(1e-6, None), (1e-6, None)])
+    params = result.x
+    hessian_inv = result.hess_inv.todense()  # 提取逆Hessian矩阵用于估计标准误差
+    se = np.sqrt(np.diag(hessian_inv)) if result.success else [np.nan] * len(params)
+    return params, se
+
+
+# 定义初始猜测值和分布
+initial_guesses = {
+    'UExE(λ,δ)': [1, 1],
+    'Beta(κ,γ)': [1, 1],
+    'Kum(a,b)': [1, 1],
+    'UG(θ,ρ)': [1, 1],
+    'PTL(ν,τ)': [1, 1],
+    'BWE(σ,η)': [1, 1],
+    'UBXII(μ,ϕ)': [1, 1],
+    'UBS(α,β)': [1, 1],
+    'UIG(ζ,ω)': [1, 1],
+    'UM(ψ,Θ)': [1, 1],
+}
+
+distributions = {
+    'UExE(λ,δ)': uexe_log_likelihood,
+    'Beta(κ,γ)': beta_log_likelihood,
+    'Kum(a,b)': kumaraswamy_log_likelihood,
+    'UG(θ,ρ)': unit_gamma_log_likelihood,
+    'PTL(ν,τ)': power_topp_leone_log_likelihood,
+    'BWE(σ,η)': bounded_weighted_exponential_log_likelihood,
+    'UBXII(μ,ϕ)': unit_burr_xii_log_likelihood,
+    'UBS(α,β)': unit_birnbaum_saunders_log_likelihood,
+    'UIG(ζ,ω)': unit_inverse_gaussian_log_likelihood,
+    'UM(ψ,Θ)': unit_mirra_log_likelihood,
+}
+
+# 计算每种分布的参数估计和标准误差（对于数据集1）
+results_data1 = {}
+for dist_name, log_likelihood_func in distributions.items():
+    initial_guess = initial_guesses[dist_name]
+    params, se = mle_estimation(log_likelihood_func, initial_guess, data1)
+    results_data1[dist_name] = {'params': params, 'se': se}
+
+# 计算每种分布的参数估计和标准误差（对于数据集2）
+results_data2 = {}
+for dist_name, log_likelihood_func in distributions.items():
+    initial_guess = initial_guesses[dist_name]
+    params, se = mle_estimation(log_likelihood_func, initial_guess, data2)
+    results_data2[dist_name] = {'params': params, 'se': se}
+
+
+def mle_estimation_with_covariance(log_likelihood_func, initial_guess, data):
+    result = optimize.minimize(log_likelihood_func, initial_guess, args=(data,), method='L-BFGS-B',
+                                bounds=[(1e-6, None), (1e-6, None)])
+    params = result.x
+    if result.success:
+        try:
+            # 提取逆Hessian矩阵作为方差-协方差矩阵
+            covariance_matrix = result.hess_inv.todense()
+        except AttributeError:
+            # 如果优化器未返回稀疏格式的 Hessian，需手动计算
+            covariance_matrix = np.linalg.inv(result.hess_inv)
+    else:
+        covariance_matrix = None
+    return params, covariance_matrix
+
+
+# 计算参数 𝛿 和 𝜆 的 95% 置信区间
+def confidence_interval(params, covariance_matrix):
+    # Z值对于95%置信区间
+    z_value = 1.96  # 对于95%的置信区间，临界值是1.96
+    # 提取标准误差
+    se = np.sqrt(np.diag(covariance_matrix))
+    # 计算置信区间
+    ci_lower = params - z_value * se
+    ci_upper = params + z_value * se
+
+    return ci_lower, ci_upper
+
+
+# 计算数据集1的UExE分布MLE方差-协方差矩阵
+params_data1, cov_matrix_data1 = mle_estimation_with_covariance(uexe_log_likelihood, [1, 1], data1)
+print("Data1 - UExE Covariance Matrix:\n", cov_matrix_data1)
+# 计算数据集2的UExE分布MLE方差-协方差矩阵
+params_data2, cov_matrix_data2 = mle_estimation_with_covariance(uexe_log_likelihood, [1, 1], data2)
+print("Data2 - UExE Covariance Matrix:\n", cov_matrix_data2)
+# 计算数据集1的UExE分布置信区间
+ci_data1 = confidence_interval(params_data1, cov_matrix_data1)
+print("Data1 - UExE 95% Confidence Interval for δ and λ:", ci_data1)
+# 计算数据集2的UExE分布置信区间
+ci_data2 = confidence_interval(params_data2, cov_matrix_data2)
+print("Data2 - UExE 95% Confidence Interval for δ and λ:", ci_data2)
+
+
+# 打印结果的函数
+def format_results(results):
+    print("MLE estimates and their SEs are in parentheses for the dataset.")
+    print(f"{'Model':<15}{'MLE Estimates':<50}")
+    for dist_name, result in results.items():
+        params = result['params']
+        ses = result['se']
+        if dist_name == "UExE(λ,δ)":
+            print(f"UExE(λ,δ)".ljust(15) +
+                  f"̂λ={params[0]:.6f}({ses[0]:.6f})".ljust(30) +
+                  f"̂δ={params[1]:.6f}({ses[1]:.6f})")
+        elif dist_name == "Beta(κ,γ)":
+            print(f"Beta(κ,γ)".ljust(15) +
+                  f"̂κ={params[0]:.6f}({ses[0]:.6f})".ljust(30) +
+                  f"̂γ={params[1]:.6f}({ses[1]:.6f})")
+        elif dist_name == "Kum(a,b)":
+            print(f"Kum(a,b)".ljust(15) +
+                  f"̂a={params[0]:.6f}({ses[0]:.6f})".ljust(30) +
+                  f"̂b={params[1]:.6f}({ses[1]:.6f})")
+        elif dist_name == "UG(θ,ρ)":
+            print(f"UG(θ,ρ)".ljust(15) +
+                  f"̂θ={params[0]:.6f}({ses[0]:.6f})".ljust(30) +
+                  f"ρ={params[1]:.6f}({ses[1]:.6f})")
+        elif dist_name == "PTL(ν,τ)":
+            print(f"PTL(ν,τ)".ljust(15) +
+                  f"̂ν={params[0]:.6f}({ses[0]:.6f})".ljust(30) +
+                  f"̂τ={params[1]:.6f}({ses[1]:.6f})")
+        elif dist_name == "BWE(σ,η)":
+            print(f"BWE(σ,η)".ljust(15) +
+                  f"̂σ={params[0]:.6f}({ses[0]:.6f})".ljust(30) +
+                  f"̂η={params[1]:.6f}({ses[1]:.6f})")
+        elif dist_name == "UBXII(μ,ϕ)":
+            print(f"UBXII(μ,ϕ)".ljust(15) +
+                  f"̂μ={params[0]:.6f}({ses[0]:.6f})".ljust(30) +
+                  f"̂ϕ={params[1]:.6f}({ses[1]:.6f})")
+        elif dist_name == "UBS(α,β)":
+            print(f"UBS(α,β)".ljust(15) +
+                  f"̂α={params[0]:.6f}({ses[0]:.6f})".ljust(30) +
+                  f"̂β={params[1]:.6f}({ses[1]:.6f})")
+        elif dist_name == "UIG(ζ,ω)":
+            print(f"UIG(ζ,ω)".ljust(15) +
+                  f"̂ζ={params[0]:.6f}({ses[0]:.6f})".ljust(30) +
+                  f"̂ω={params[1]:.6f}({ses[1]:.6f})")
+        elif dist_name == "UM(ψ,Θ)":
+            print(f"UM(ψ,Θ)".ljust(15) +
+                  f"̂ψ={params[0]:.6f}({ses[0]:.6f})".ljust(30) +
+                  f"̂Θ={params[1]:.6f}({ses[1]:.6f})")
+
+
+# 打印数据集1结果
+format_results(results_data1)
+print()
+# 打印数据集2结果
+format_results(results_data2)
+print()
+
+
+# 计算信息准则：AIC、CAIC、HQIC
+def calculate_info_criteria(log_likelihood, k, n):
+    aic = 2 * k - 2 * log_likelihood
+    caic = aic + 2 * k * (k + 1) / (n - k - 1)
+    hqic = 2 * k * np.log(np.log(n)) - 2 * log_likelihood
+    return aic, caic, hqic
+
+
+def format_results_with_criteria(results, data):
+    print("MLE estimates, SEs, and information criteria for the dataset.")
+    print(f"{'Model':<15}{'Log_L':<15}{'AIC':<15}{'CAIC':<15}{'HQIC':<15}")
+    n = len(data)  # 数据点数量
+    for dist_name, result in results.items():
+        params = result['params']
+        ses = result['se']
+        # 计算对数似然值
+        log_likelihood_func = distributions[dist_name]
+        log_likelihood = -log_likelihood_func(params, data)  # 负对数似然
+
+        # 计算AIC、CAIC、HQIC
+        k = len(params)  # 参数个数
+        aic, caic, hqic = calculate_info_criteria(log_likelihood, k, n)
+
+        if dist_name == "UExE(λ,δ)":
+            print(f"UExE(λ,δ)".ljust(15) +
+                  f"{log_likelihood:.6f}".ljust(15) +
+                  f"{aic:.6f}".ljust(15) +
+                  f"{caic:.6f}".ljust(15) +
+                  f"{hqic:.6f}".ljust(15))
+        elif dist_name == "Beta(κ,γ)":
+            print(f"Beta(κ,γ)".ljust(15) +
+                  f"{log_likelihood:.6f}".ljust(15) +
+                  f"{aic:.6f}".ljust(15) +
+                  f"{caic:.6f}".ljust(15) +
+                  f"{hqic:.6f}".ljust(15))
+        elif dist_name == "Kum(a,b)":
+            print(f"Kum(a,b)".ljust(15) +
+                  f"{log_likelihood:.6f}".ljust(15) +
+                  f"{aic:.6f}".ljust(15) +
+                  f"{caic:.6f}".ljust(15) +
+                  f"{hqic:.6f}".ljust(15))
+        elif dist_name == "UG(θ,ρ)":
+            print(f"UG(θ,ρ)".ljust(15) +
+                  f"{log_likelihood:.6f}".ljust(15) +
+                  f"{aic:.6f}".ljust(15) +
+                  f"{caic:.6f}".ljust(15) +
+                  f"{hqic:.6f}".ljust(15))
+        elif dist_name == "PTL(ν,τ)":
+            print(f"PTL(ν,τ)".ljust(15) +
+                  f"{log_likelihood:.6f}".ljust(15) +
+                  f"{aic:.6f}".ljust(15) +
+                  f"{caic:.6f}".ljust(15) +
+                  f"{hqic:.6f}".ljust(15))
+        elif dist_name == "BWE(σ,η)":
+            print(f"BWE(σ,η)".ljust(15) +
+                  f"{log_likelihood:.6f}".ljust(15) +
+                  f"{aic:.6f}".ljust(15) +
+                  f"{caic:.6f}".ljust(15) +
+                  f"{hqic:.6f}".ljust(15))
+        elif dist_name == "UBXII(μ,ϕ)":
+            print(f"UBXII(μ,ϕ)".ljust(15) +
+                  f"{log_likelihood:.6f}".ljust(15) +
+                  f"{aic:.6f}".ljust(15) +
+                  f"{caic:.6f}".ljust(15) +
+                  f"{hqic:.6f}".ljust(15))
+        elif dist_name == "UBS(α,β)":
+            print(f"UBS(α,β)".ljust(15) +
+                  f"{log_likelihood:.6f}".ljust(15) +
+                  f"{aic:.6f}".ljust(15) +
+                  f"{caic:.6f}".ljust(15) +
+                  f"{hqic:.6f}".ljust(15))
+        elif dist_name == "UIG(ζ,ω)":
+            print(f"UIG(ζ,ω)".ljust(15) +
+                  f"{log_likelihood:.6f}".ljust(15) +
+                  f"{aic:.6f}".ljust(15) +
+                  f"{caic:.6f}".ljust(15) +
+                  f"{hqic:.6f}".ljust(15))
+        elif dist_name == "UM(ψ,Θ)":
+            print(f"UM(ψ,Θ)".ljust(15) +
+                  f"{log_likelihood:.6f}".ljust(15) +
+                  f"{aic:.6f}".ljust(15) +
+                  f"{caic:.6f}".ljust(15) +
+                  f"{hqic:.6f}".ljust(15))
+
+
+# 打印数据集1结果，包含信息准则
+format_results_with_criteria(results_data1, data1)
+print()
+# 打印数据集2结果，包含信息准则
+format_results_with_criteria(results_data2, data2)
+print()
